@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Work Done & Energy Transfer Simulation</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .moving-object {
+            transition: transform 0.05s linear;
+        }
+        /* Wheel glow effect for braking */
+        .wheel-glow {
+            box-shadow: 0 0 15px 5px rgba(239, 68, 68, 0.8);
+            background-color: #ef4444 !important;
+            transition: all 0.3s ease;
+        }
+        /* Block friction glow (bottom) - Now just used for shadow effect, not border */
+        .friction-glow-shadow {
+            box-shadow: 0 15px 15px -10px rgba(239, 68, 68, 0.9);
+            transition: all 0.3s ease;
+        }
+        /* Smoke particle animation */
+        @keyframes smokeFade {
+            0% { opacity: 0.8; transform: translateY(0) scale(1) translateX(0); }
+            100% { opacity: 0; transform: translateY(-30px) scale(2.5) translateX(-15px); }
+        }
+        .smoke-particle {
+            position: absolute;
+            bottom: 5px;
+            width: 8px;
+            height: 8px;
+            background: #9ca3af;
+            border-radius: 50%;
+            animation: smokeFade 0.6s forwards;
+            pointer-events: none;
+            z-index: 20;
+        }
+    </style>
+</head>
+<body class="bg-slate-100 text-slate-800 font-sans">
+
+    <nav class="bg-indigo-600 text-white p-4 shadow-md">
+        <div class="container mx-auto flex justify-between items-center">
+            <h1 class="text-2xl font-bold"><i class="fa-solid fa-flask mr-2"></i>Physics Lab: Work & Energy</h1>
+            <span class="text-sm bg-indigo-700 px-3 py-1 rounded-full font-mono">Area = W = F &times; s</span>
+        </div>
+    </nav>
+
+    <div class="container mx-auto p-4 lg:p-8 grid grid-cols-1 lg:grid-cols-12 gap-6">
+        
+        <div class="lg:col-span-4 space-y-6">
+            
+            <div class="bg-white p-6 rounded-xl shadow-lg border-l-4 border-indigo-500">
+                <h2 class="text-xl font-bold mb-4 text-gray-700">Settings & Scenarios</h2>
+                
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-600 mb-2">Scenario:</label>
+                    <select id="scenarioSelect" class="w-full p-2 border border-gray-300 rounded-md bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <option value="push">1. Pushing Block (No Friction)</option>
+                        <option value="friction">2. Pushing Block (With Friction)</option>
+                        <option value="brake">3. Car Braking</option>
+                    </select>
+                </div>
+
+                <div id="generalControls">
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-600 mb-2">
+                            Mass (m): <span id="massValue" class="font-bold text-indigo-600">5.0</span> kg
+                        </label>
+                        <input type="range" id="massInput" min="1.0" max="10.0" step="1.0" value="5.0" 
+                               class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-indigo-600">
+                        <div class="flex justify-between text-xs text-gray-400 mt-1"><span>1 kg</span><span>10 kg</span></div>
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-600 mb-2" id="forceLabelText">
+                            Applied Force (F): <span id="forceValue" class="font-bold text-red-600">10</span> N
+                        </label>
+                        <input type="range" id="forceInput" min="5" max="30" step="1" value="10" 
+                               class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-red-500">
+                        <div class="flex justify-between text-xs text-gray-400 mt-1"><span>5 N</span><span>30 N</span></div>
+                    </div>
+
+                    <div class="mb-6">
+                        <label class="block text-sm font-medium text-gray-600 mb-2">
+                            Target Distance (s): <span id="distTargetValue" class="font-bold text-blue-600">10.0</span> m
+                        </label>
+                        <input type="range" id="distTargetInput" min="1.0" max="10.0" step="0.5" value="10.0" 
+                               class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-500">
+                        <div class="flex justify-between text-xs text-gray-400 mt-1"><span>1 m</span><span>10 m</span></div>
+                    </div>
+                </div>
+
+                <div id="frictionControl" class="mb-6 hidden border-t pt-4">
+                    <label class="block text-sm font-medium text-gray-600 mb-2">
+                        Frictional Force (f): <span id="frictionValueDisplay" class="font-bold text-orange-500">3</span> N
+                    </label>
+                    <input type="range" id="frictionInput" min="1" max="5" step="1" value="3" 
+                           class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-orange-500">
+                    <div class="flex justify-between text-xs text-gray-400 mt-1"><span>1 N</span><span>5 N</span></div>
+                </div>
+
+                <div id="brakeControls" class="hidden mb-6">
+                    <div class="bg-gray-50 p-3 rounded-lg mb-4 text-sm text-gray-700 border">
+                        <p><strong>Mass (m):</strong> 1000 kg (Fixed)</p>                        
+                    </div>
+
+                    <label class="block text-sm font-medium text-gray-600 mb-2">
+                        Braking Force (F): <span id="brakeForceValueDisplay" class="font-bold text-red-600">50,000</span> N
+                    </label>
+                    <input type="range" id="brakeForceInput" min="20000" max="50000" step="1000" value="50000" 
+                           class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-red-500">
+                    <div class="flex justify-between text-xs text-gray-400 mt-1"><span>20,000 N</span><span>50,000 N</span></div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <button id="btnStart" class="bg-green-500 hover:bg-green-600 text-white py-3 rounded-lg font-bold transition flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-play"></i> Start
+                    </button>
+                    <button id="btnPause" class="bg-yellow-500 hover:bg-yellow-600 text-white py-3 rounded-lg font-bold transition flex items-center justify-center gap-2 hidden">
+                        <i class="fa-solid fa-pause"></i> Pause
+                    </button>
+                    <button id="btnReset" class="bg-gray-500 hover:bg-gray-600 text-white py-3 rounded-lg font-bold transition flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-rotate-right"></i> Reset
+                    </button>
+                </div>
+            </div>
+
+            <div class="bg-white p-6 rounded-xl shadow-lg">
+                <h3 class="text-lg font-bold mb-3 text-gray-700">Real-time Data</h3>
+                <div class="space-y-3">
+                    <div class="flex justify-between items-center border-b pb-2">
+                        <span class="text-gray-600">Distance (s)</span>
+                        <span class="font-mono font-bold text-xl text-gray-800"><span id="distDisplay">0.00</span> m</span>
+                    </div>
+                    <div class="flex justify-between items-center border-b pb-2">
+                        <span class="text-gray-600" id="workLabelText">Work Done (Applied)</span>
+                        <span class="font-mono font-bold text-xl text-indigo-600"><span id="workDisplay">0.0</span> J</span>
+                    </div>
+                    
+                    <div id="frictionDataRow" class="hidden flex justify-between items-center border-b pb-2">
+                        <span class="text-gray-600">Work Done against Friction</span>
+                        <span class="font-mono font-bold text-xl text-orange-500"><span id="workFrictionDisplay">0.0</span> J</span>
+                    </div>
+                    
+                    <div class="pt-2 bg-gray-50 p-3 rounded-lg border border-gray-200">
+                        <span class="text-gray-600 text-sm font-bold block mb-1" id="calcTitle">Work Calculation (Area):</span>
+                        <div class="font-mono text-sm text-gray-700 leading-relaxed" id="calculationDisplay">
+                            W = F &times; s<br>
+                            W = 10 N &times; 0.00 m <br>
+                            W = 0.0 J
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="lg:col-span-8 space-y-6">
+            
+            <div class="bg-white rounded-xl shadow-lg p-6 h-64 relative overflow-hidden flex flex-col justify-end border-b-8 border-gray-400 bg-gradient-to-t from-gray-100 to-white" id="animationContainer">
+                
+                <div class="absolute bottom-0 left-6 right-6 flex justify-between text-xs text-gray-500 font-bold mb-1 z-0">
+                    <span>0m</span>
+                    <span id="maxAxisLabel">10m</span>
+                </div>
+
+                <div class="relative w-full h-full">
+                    <div id="movingObject" class="moving-object absolute bottom-4 flex items-center z-10" style="left: 24px; transform: translateX(0px);">
+                        
+                        <div id="objectContainer" class="relative flex items-center">
+                            
+                            <div id="forceArrowLeft" class="absolute right-[100%] mr-1 flex items-center opacity-0 transition-opacity duration-300">
+                                <div class="w-16 h-2 bg-red-500"></div>
+                                <div class="w-0 h-0 border-t-[6px] border-t-transparent border-l-[10px] border-l-red-500 border-b-[6px] border-b-transparent"></div>
+                                <span class="text-red-600 font-bold text-sm absolute -top-5 left-4 whitespace-nowrap" id="arrowForceLabelL">10N</span>
+                            </div>
+
+                            <div id="visualBlock" class="w-20 h-20 bg-indigo-500 rounded-md border-2 border-indigo-700 shadow-md flex items-center justify-center relative overflow-hidden">
+                                <span class="text-white font-bold z-10" id="blockMassLabel">5 kg</span>
+                                <div id="heatStrip" class="absolute bottom-0 left-0 right-0 h-3 bg-indigo-700 transition-colors duration-200"></div>
+                                
+                                <div id="frictionArrowRight" class="absolute bottom-1 right-0 translate-x-1 flex items-center opacity-0 transition-opacity duration-300 hidden z-20">
+                                     <div class="w-0 h-0 border-t-[5px] border-t-transparent border-r-[8px] border-r-orange-500 border-b-[5px] border-b-transparent"></div>
+                                    <div class="w-10 h-1.5 bg-orange-500"></div>
+                                    <span class="text-orange-600 font-bold text-xs absolute -top-4 right-0 whitespace-nowrap" id="arrowFrictionLabelR">3N</span>
+                                </div>
+                            </div>
+                            
+                            <div id="visualCar" class="hidden relative w-24 h-16 flex flex-col justify-end">
+                                <div class="w-full h-10 bg-blue-500 rounded-t-xl rounded-b-md relative">
+                                    <div class="absolute top-1 right-2 w-8 h-4 bg-blue-300 rounded-sm"></div>
+                                </div>
+                                <div class="flex justify-between px-2 absolute -bottom-2 w-full">
+                                    <div class="wheel w-6 h-6 bg-gray-800 rounded-full border-2 border-gray-300"></div>
+                                    <div class="wheel w-6 h-6 bg-gray-800 rounded-full border-2 border-gray-300"></div>
+                                </div>
+                                
+                                <div id="forceArrowRight" class="absolute -bottom-1 -right-16 hidden flex-row-reverse items-center opacity-0 transition-opacity duration-300">
+                                    <div class="w-12 h-1.5 bg-red-500"></div>
+                                    <div class="w-0 h-0 border-t-[5px] border-t-transparent border-r-[8px] border-r-red-500 border-b-[5px] border-b-transparent"></div>
+                                    <span class="text-red-600 font-bold text-xs absolute -top-4 right-1 whitespace-nowrap" id="arrowForceLabelR">50,000 N</span>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white p-4 rounded-xl shadow-lg">
+                <div class="flex justify-between items-center mb-2">
+                    <h3 class="text-lg font-bold text-gray-700" id="graphTitle">Force vs Distance Graph</h3>
+                    <div class="text-xs text-white bg-indigo-500 px-2 py-1 rounded shadow-sm flex gap-2">
+                        <span>Area = Work Done</span>
+                    </div>
+                </div>
+                <div class="relative h-64 w-full">
+                    <canvas id="chartCanvas"></canvas>
+                </div>
+            </div>
+
+            <div class="bg-indigo-50 border-l-4 border-indigo-600 p-4 rounded-r-lg" id="obsTextContainer">
+                <div class="flex">
+                    <div class="flex-shrink-0"><i class="fa-solid fa-lightbulb text-indigo-600 text-xl"></i></div>
+                    <div class="ml-3">
+                        <p class="text-sm text-indigo-800" id="obsText">
+                            <span class="font-bold">Observation:</span> 
+                            Force is applied to the left side of the object, pushing it forward. The area of the rectangle in the graph (F &times; s) represents the Work Done.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        const UPDATE_INTERVAL = 50; 
+        
+        // Colors for heating effect (Blue cold -> Red hot)
+        const COLD_COLOR = '#4338ca'; // indigo-700
+        const HOT_COLOR = '#ef4444'; // red-500
+
+        let state = {
+            mode: 'push', // 'push', 'friction', 'brake'
+            mass: 5.0,
+            force: 10,
+            friction: 3,
+            brakeForce: 50000, 
+            brakeFixedWork: 800000, 
+            targetDistance: 10.0,
+            graphMaxDist: 10.0,
+            distance: 0.0,
+            velocity: 0.0,
+            work: 0.0,
+            workFriction: 0.0,
+            isRunning: false,
+            timerId: null
+        };
+
+        const els = {
+            scenarioSelect: document.getElementById('scenarioSelect'),
+            generalControls: document.getElementById('generalControls'),
+            frictionControl: document.getElementById('frictionControl'),
+            brakeControls: document.getElementById('brakeControls'),
+            
+            massInput: document.getElementById('massInput'),
+            massValue: document.getElementById('massValue'),
+            forceInput: document.getElementById('forceInput'),
+            forceValue: document.getElementById('forceValue'),
+            distTargetInput: document.getElementById('distTargetInput'),
+            distTargetValue: document.getElementById('distTargetValue'),
+            frictionInput: document.getElementById('frictionInput'),
+            frictionValueDisplay: document.getElementById('frictionValueDisplay'),
+            brakeForceInput: document.getElementById('brakeForceInput'),
+            brakeForceValueDisplay: document.getElementById('brakeForceValueDisplay'),
+            
+            btnStart: document.getElementById('btnStart'),
+            btnPause: document.getElementById('btnPause'),
+            btnReset: document.getElementById('btnReset'),
+            
+            distDisplay: document.getElementById('distDisplay'),
+            workDisplay: document.getElementById('workDisplay'),
+            workFrictionDisplay: document.getElementById('workFrictionDisplay'),
+            frictionDataRow: document.getElementById('frictionDataRow'),
+            calculationDisplay: document.getElementById('calculationDisplay'),
+            
+            movingObject: document.getElementById('movingObject'),
+            objectContainer: document.getElementById('objectContainer'),
+            visualBlock: document.getElementById('visualBlock'),
+            visualCar: document.getElementById('visualCar'),
+            heatStrip: document.getElementById('heatStrip'),
+            
+            forceArrowLeft: document.getElementById('forceArrowLeft'),
+            forceArrowRight: document.getElementById('forceArrowRight'),
+            frictionArrowRight: document.getElementById('frictionArrowRight'), // New element
+            arrowForceLabelL: document.getElementById('arrowForceLabelL'),
+            arrowForceLabelR: document.getElementById('arrowForceLabelR'),
+            arrowFrictionLabelR: document.getElementById('arrowFrictionLabelR'), // New element
+            
+            forceLabelText: document.getElementById('forceLabelText'),
+            workLabelText: document.getElementById('workLabelText'),
+            calcTitle: document.getElementById('calcTitle'),
+            obsText: document.getElementById('obsText'),
+            animationContainer: document.getElementById('animationContainer'),
+            chartCanvas: document.getElementById('chartCanvas'),
+            maxAxisLabel: document.getElementById('maxAxisLabel')
+        };
+
+        let chart;
+
+        function initChart() {
+            const ctx = els.chartCanvas.getContext('2d');
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    datasets: [
+                        {
+                            label: 'Applied/Braking Force (N)',
+                            data: [{x: 0, y: 0}, {x: 0, y: 0}], 
+                            borderColor: 'rgb(239, 68, 68)', 
+                            backgroundColor: 'rgba(79, 70, 229, 0.3)', // Purpleish overlay
+                            fill: 'origin', 
+                            pointRadius: 0,
+                            borderWidth: 3,
+                            stepped: true,
+                            order: 2 // Render behind friction
+                        },
+                        {
+                            label: 'Friction Force (N)',
+                            data: [], // Starts empty
+                            borderColor: 'rgb(249, 115, 22)', // Orange
+                            backgroundColor: 'rgba(249, 115, 22, 0.6)', 
+                            fill: 'origin', 
+                            pointRadius: 0,
+                            borderWidth: 2,
+                            stepped: true,
+                            order: 1 // Render on top
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false, animation: false,
+                    scales: {
+                        x: { type: 'linear', position: 'bottom', title: { display: true, text: 'Distance (m)' }, min: 0, max: state.graphMaxDist },
+                        y: { title: { display: true, text: 'Force (N)' }, min: 0, max: 35 }
+                    },
+                    plugins: {
+                        legend: { position: 'top' }
+                    }
+                }
+            });
+        }
+
+        function updateChartScale() {
+            chart.options.scales.x.max = state.graphMaxDist;
+            
+            if (state.mode === 'brake') {
+                chart.options.scales.y.max = 60000; // Fit 50,000 N
+            } else {
+                chart.options.scales.y.max = 35; // Fit up to 30 N
+            }
+            
+            // Hide/Show Friction dataset legend based on mode
+            chart.data.datasets[1].hidden = (state.mode !== 'friction');
+            
+            chart.update();
+        }
+
+        // Helper to interpolate between two colors
+        function interpolateColor(color1, color2, factor) {
+            if (factor === 0) return color1;
+            if (factor >= 1) return color2;
+
+            const r1 = parseInt(color1.substring(1, 3), 16);
+            const g1 = parseInt(color1.substring(3, 5), 16);
+            const b1 = parseInt(color1.substring(5, 7), 16);
+
+            const r2 = parseInt(color2.substring(1, 3), 16);
+            const g2 = parseInt(color2.substring(3, 5), 16);
+            const b2 = parseInt(color2.substring(5, 7), 16);
+
+            const r = Math.round(r1 + factor * (r2 - r1));
+            const g = Math.round(g1 + factor * (g2 - g1));
+            const b = Math.round(b1 + factor * (b2 - b1));
+
+            return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+        }
+
+        function init() {
+            els.scenarioSelect.addEventListener('change', handleScenarioChange);
+            
+            els.massInput.addEventListener('input', (e) => { state.mass = parseFloat(e.target.value); els.massValue.textContent = state.mass.toFixed(1); document.getElementById('blockMassLabel').textContent = state.mass.toFixed(1) + ' kg'; resetSimulation(); });
+            els.forceInput.addEventListener('input', (e) => { state.force = parseInt(e.target.value); els.forceValue.textContent = state.force; els.arrowForceLabelL.textContent = state.force + 'N'; resetSimulation(); });
+            els.distTargetInput.addEventListener('input', (e) => { state.targetDistance = parseFloat(e.target.value); els.distTargetValue.textContent = state.targetDistance.toFixed(1); resetSimulation(); });
+            els.frictionInput.addEventListener('input', (e) => { 
+                state.friction = parseInt(e.target.value); 
+                els.frictionValueDisplay.textContent = state.friction; 
+                els.arrowFrictionLabelR.textContent = state.friction + 'N'; // Update label on visual arrow
+                resetSimulation(); 
+            });
+            
+            els.brakeForceInput.addEventListener('input', (e) => { 
+                state.brakeForce = parseInt(e.target.value); 
+                els.brakeForceValueDisplay.textContent = state.brakeForce.toLocaleString(); 
+                els.arrowForceLabelR.textContent = state.brakeForce.toLocaleString() + ' N';
+                resetSimulation(); 
+            });
+            
+            els.btnStart.addEventListener('click', toggleSimulation);
+            els.btnPause.addEventListener('click', toggleSimulation);
+            els.btnReset.addEventListener('click', resetSimulation);
+
+            initChart();
+            handleScenarioChange(); 
+        }
+
+        function handleScenarioChange() {
+            state.mode = els.scenarioSelect.value;
+            
+            // Clear friction visual leftovers when switching scenarios
+            els.frictionArrowRight.style.opacity = '0';
+            els.frictionArrowRight.classList.add('hidden');
+            els.visualBlock.classList.remove('friction-glow-shadow');
+            els.heatStrip.style.backgroundColor = COLD_COLOR; // Reset color
+
+            if (state.mode === 'push') {
+                els.generalControls.classList.remove('hidden');
+                els.frictionControl.classList.add('hidden');
+                els.brakeControls.classList.add('hidden');
+                
+                els.visualBlock.classList.remove('hidden');
+                els.visualCar.classList.add('hidden');
+                els.frictionDataRow.classList.add('hidden');
+                
+                state.graphMaxDist = 10.0;
+                els.maxAxisLabel.textContent = "10m";
+                
+                els.workLabelText.textContent = "Work Done (W)";
+                els.calcTitle.textContent = "Work Calculation (Area):";
+                els.obsText.innerHTML = `<span class="font-bold">Observation:</span> Force is applied to the left side of the object, pushing it forward. The area of the rectangle in the graph (F &times; s) represents the Work Done.`;
+                
+            } else if (state.mode === 'friction') {
+                els.generalControls.classList.remove('hidden');
+                els.frictionControl.classList.remove('hidden');
+                els.brakeControls.classList.add('hidden');
+                
+                els.visualBlock.classList.remove('hidden');
+                els.visualCar.classList.add('hidden');
+                els.frictionDataRow.classList.remove('hidden');
+                
+                els.arrowFrictionLabelR.textContent = state.friction + 'N';
+
+                state.graphMaxDist = 10.0;
+                els.maxAxisLabel.textContent = "10m";
+                
+                els.workLabelText.textContent = "Work Done (Applied)";
+                els.calcTitle.textContent = "Energy Transfer Calculation:";
+                // Updated observation text slightly to reflect gradual heating
+                els.obsText.innerHTML = `<span class="font-bold">Observation:</span> The object is pushed against friction (orange arrow pointing left). The bottom gradually turns red, symbolizing work done against friction converting into heat energy based on distance. The graph shows the overlapping area of both forces.`;
+                
+            } else if (state.mode === 'brake') {
+                els.generalControls.classList.add('hidden');
+                els.frictionControl.classList.add('hidden');
+                els.brakeControls.classList.remove('hidden');
+                
+                els.visualBlock.classList.add('hidden');
+                els.visualCar.classList.remove('hidden');
+                els.frictionDataRow.classList.add('hidden');
+                
+                // Max distance for brake is fixed Work / min Force = 800,000 / 20,000 = 40m
+                state.graphMaxDist = 40.0;
+                els.maxAxisLabel.textContent = "40m";
+                
+                els.workLabelText.textContent = "Work Done by Braking";
+                els.calcTitle.textContent = "Braking Work Calculation:";
+                els.obsText.innerHTML = `<span class="font-bold">Observation:</span> Braking force acts on wheels. Adjusting the braking force changes the stopping distance. Kinetic energy is converted to heat (red wheels & smoke).`;
+            }
+            
+            updateChartScale();
+            resetSimulation();
+        }
+
+        function createSmoke() {
+            if (state.mode !== 'brake' || !state.isRunning || state.velocity <= 0) return;
+            const smoke = document.createElement('div');
+            smoke.className = 'smoke-particle';
+            smoke.style.left = (Math.random() * 60 + 10) + 'px'; 
+            els.movingObject.appendChild(smoke);
+            setTimeout(() => { if(smoke.parentNode) smoke.parentNode.removeChild(smoke); }, 600);
+        }
+
+        function physicsLoop() {
+            let targetDist = (state.mode === 'brake') ? (state.brakeFixedWork / state.brakeForce) : state.targetDistance;
+            let currentForce = (state.mode === 'brake') ? state.brakeForce : state.force;
+
+            if (!state.isRunning || state.distance >= targetDist) {
+                if (state.distance >= targetDist) {
+                    state.distance = targetDist; 
+                    state.velocity = 0; 
+                    stopSimulation();
+                    updateUI();
+                    updateVisuals();
+                }
+                return;
+            }
+
+            const dt = UPDATE_INTERVAL / 1000;
+            
+            if (state.mode === 'push') {
+                let acceleration = state.force / state.mass;
+                state.velocity += acceleration * dt;
+                
+            } else if (state.mode === 'friction') {
+                let netForce = Math.max(0, state.force - state.friction);
+                let acceleration = netForce / state.mass;
+                state.velocity += acceleration * dt;
+                
+                // --- MODIFICATION: Gradient heating effect based on distance ---
+                // Progress is current distance vs target distance
+                const progress = Math.min(state.distance / state.targetDistance, 1.0);
+                // Mix color from blue to red based on progress
+                const currentHeatColor = interpolateColor(COLD_COLOR, HOT_COLOR, progress);
+                // Apply dynamic color via inline style
+                els.heatStrip.style.backgroundColor = currentHeatColor;
+                
+            } else if (state.mode === 'brake') {
+                let acceleration = state.brakeForce / 1000; 
+                let idealStartV = Math.sqrt(2 * acceleration * targetDist);
+                if (state.distance === 0) state.velocity = idealStartV;
+                
+                state.velocity = Math.max(0, state.velocity - acceleration * dt);
+                createSmoke();
+            }
+
+            const ds = state.velocity * dt;
+            state.distance = Math.min(state.distance + ds, targetDist);
+            
+            state.work = currentForce * state.distance;
+            
+            if (state.mode === 'friction') {
+                state.workFriction = state.friction * state.distance;
+            }
+
+            // Update main chart dataset
+            chart.data.datasets[0].data = [
+                {x: 0, y: currentForce},
+                {x: state.distance, y: currentForce},
+                {x: state.distance, y: 0} 
+            ];
+            
+            // Update friction chart dataset
+            if (state.mode === 'friction') {
+                chart.data.datasets[1].data = [
+                    {x: 0, y: state.friction},
+                    {x: state.distance, y: state.friction},
+                    {x: state.distance, y: 0}
+                ];
+            } else {
+                chart.data.datasets[1].data = [];
+            }
+            
+            chart.update();
+
+            updateUI();
+            updateVisuals();
+        }
+
+        function toggleSimulation() {
+            state.isRunning = !state.isRunning;
+            if (state.isRunning) {
+                els.btnStart.classList.add('hidden');
+                els.btnPause.classList.remove('hidden');
+                
+                els.massInput.disabled = true; els.forceInput.disabled = true; els.distTargetInput.disabled = true; 
+                els.frictionInput.disabled = true; els.brakeForceInput.disabled = true; els.scenarioSelect.disabled = true;
+                
+                if (state.mode === 'push' || state.mode === 'friction') {
+                    els.forceArrowLeft.style.opacity = '1';
+                    els.forceArrowLeft.classList.remove('hidden');
+                    
+                    if (state.mode === 'friction') {
+                        // --- MODIFICATION: Show friction visual elements ---
+                        // Show orange arrow pointing left at bottom right
+                        els.frictionArrowRight.style.opacity = '1';
+                        els.frictionArrowRight.classList.remove('hidden');
+                        
+                        // Add glow shadow effect to block bottom
+                        els.visualBlock.classList.add('friction-glow-shadow');
+                    }
+                } else if (state.mode === 'brake') {
+                    els.forceArrowRight.style.opacity = '1';
+                    els.forceArrowRight.classList.remove('hidden');
+                    els.forceArrowRight.style.display = 'flex';
+                    document.querySelectorAll('.wheel').forEach(w => w.classList.add('wheel-glow'));
+                }
+
+                state.timerId = setInterval(physicsLoop, UPDATE_INTERVAL);
+            } else {
+                stopSimulation();
+            }
+        }
+
+        function stopSimulation() {
+            state.isRunning = false;
+            clearInterval(state.timerId);
+            els.btnStart.classList.remove('hidden');
+            els.btnPause.classList.add('hidden');
+            
+            els.massInput.disabled = false; els.forceInput.disabled = false; els.distTargetInput.disabled = false; 
+            els.frictionInput.disabled = false; els.brakeForceInput.disabled = false; els.scenarioSelect.disabled = false;
+            
+            // Keep heat color and shadow glow if stopped mid-friction run
+        }
+
+        function resetSimulation() {
+            stopSimulation();
+            state.distance = 0; state.velocity = 0; state.work = 0; state.workFriction = 0;
+            
+            els.forceArrowLeft.style.opacity = '0'; 
+            els.forceArrowRight.style.opacity = '0';
+            
+            // Reset friction visual leftovers
+            els.frictionArrowRight.style.opacity = '0';
+            els.frictionArrowRight.classList.add('hidden');
+            els.visualBlock.classList.remove('friction-glow-shadow');
+            els.heatStrip.style.backgroundColor = COLD_COLOR; // Reset color to cold blue
+
+            document.querySelectorAll('.wheel').forEach(w => w.classList.remove('wheel-glow'));
+            
+            let initialForce = (state.mode === 'brake') ? state.brakeForce : state.force;
+            chart.data.datasets[0].data = [{x: 0, y: initialForce}, {x: 0, y: initialForce}];
+            chart.data.datasets[1].data = [];
+            chart.update();
+
+            document.querySelectorAll('.smoke-particle').forEach(el => el.remove());
+
+            updateUI();
+            updateVisuals();
+        }
+
+        function updateUI() {
+            els.distDisplay.textContent = state.distance.toFixed(2);
+            els.workDisplay.textContent = state.work.toLocaleString(undefined, {minimumFractionDigits: 1, maximumFractionDigits: 1});
+
+            let currentForce = (state.mode === 'brake') ? state.brakeForce : state.force;
+            
+            let calcHTML = `W = F &times; s<br>`;
+            calcHTML += `W = ${currentForce.toLocaleString()} N &times; ${state.distance.toFixed(2)} m<br>`;
+            calcHTML += `W = ${state.work.toLocaleString(undefined, {minimumFractionDigits: 1, maximumFractionDigits: 1})} J<br>`;
+            
+            if (state.mode === 'friction') {
+                els.workFrictionDisplay.textContent = state.workFriction.toFixed(1);
+                calcHTML += `<br><span class="text-orange-600">Work against friction = f &times; s</span><br>`;
+                calcHTML += `<span class="text-orange-600">= ${state.friction} N &times; ${state.distance.toFixed(2)} m = ${state.workFriction.toFixed(1)} J (Heat)</span>`;
+            }
+            
+            els.calculationDisplay.innerHTML = calcHTML;
+        }
+
+        function updateVisuals() {
+            const containerWidth = els.animationContainer.offsetWidth;
+            // Subtract padding (left 24 + right 24) and the width of the object itself to stay inside container
+            const objectWidth = els.objectContainer.offsetWidth; 
+            const maxPxMovement = containerWidth - 48 - objectWidth; 
+            
+            const progress = Math.min(state.distance / state.graphMaxDist, 1.0);
+            const currentPx = progress * maxPxMovement;
+            
+            els.movingObject.style.transform = `translateX(${currentPx}px)`;
+        }
+
+        window.addEventListener('resize', updateVisuals);
+
+        init();
+    </script>
+</body>
+</html>
